@@ -121,7 +121,16 @@ export class Game {
     this.world.update(dt);
 
     // --- Player ---
-    this.player.update(dt, this.input, this.bullets, this.balls);
+    // Cursor (screen px) -> world target for mouse aim. sx/sy are the
+    // inverse of this mapping; wrapX keeps the target on the wrapped world.
+    const aim =
+      this.input.mouseX == null // null (no move yet) or undefined (headless stub)
+        ? null
+        : {
+            x: wrapX(this.camera.x + this.input.mouseX),
+            y: this.camera.y + this.input.mouseY,
+          };
+    this.player.update(dt, this.input, this.bullets, this.balls, aim);
     if (this.player.dead) this.gameOver = true;
 
     // Splash particles on water entry/exit
@@ -931,6 +940,23 @@ export class Game {
       );
       ctx.fillText('press R to restart', VIEW_W / 2, VIEW_H / 2 + 22);
       ctx.textAlign = 'left';
+    }
+
+    // Crosshair at the cursor (the OS cursor is hidden over the canvas).
+    if (this.input.mouseX != null) {
+      const mx = Math.round(this.input.mouseX);
+      const my = Math.round(this.input.mouseY);
+      // Dark drop-shadow so it reads on clouds and water alike.
+      for (const [color, o] of [
+        [PALETTE.enemyDark, 1],
+        [PALETTE.white, 0],
+      ]) {
+        ctx.fillStyle = color;
+        ctx.fillRect(mx - 4 + o, my + o, 3, 1);
+        ctx.fillRect(mx + 2 + o, my + o, 3, 1);
+        ctx.fillRect(mx + o, my - 4 + o, 1, 3);
+        ctx.fillRect(mx + o, my + 2 + o, 1, 3);
+      }
     }
   }
 }

@@ -58,20 +58,27 @@ Design decisions (agreed with user):
   sustains altitude, stalling drops you. Full gravity always applies in water.
 - **Horde mode**: waves, not timed spawns — clear all enemies → breather → bigger wave.
   Difficulty scales with wave number (`1 + (wave-1)*WAVE_DIFF_GROWTH`), read at spawn.
-- Controls: **W** thrust, **A/D** rotate, **Space** fire, **Shift** boost, **R** restart
+- Controls: **mouse** aims (plane turns toward the cursor at its normal inertia-scaled
+  turn rate — the cursor is a target, not a teleport; `AIM_DEADZONE`px around the plane
+  holds heading; pixel crosshair drawn in-game, OS cursor hidden via CSS), **LMB** fire,
+  **RMB** special (launch charge ball, edge-triggered), **W** thrust, **S** brake
+  (`BRAKE_DRAG`, air only — bleed speed to aim, but stall and you drop; water rules
+  untouched), **Shift** boost, **R** restart. Screen→world aim mapping in game.js:
+  `wrapX(cam.x + mouseX)`, `cam.y + mouseY`.
 - **Boost** (Shift, edge-triggered): instant `BOOST_IMPULSE` kick along facing; recharges
   in `BOOST_RECHARGE`s; raises the speed cap briefly (`BOOST_OVERSPEED_*`). Blocked while
   tip is underwater. Readiness feedback = afterburner nozzle on the tail: grows dim cyan
   while recharging, blinks white/cyan when ready (mirrors the charge ball up front).
-- **Charge gun** (one button, Space): holding/tapping = machine gun w/ spread; NOT
-  shooting builds a charge ball at the nose — after a `CHARGE_DELAY` cool-off, full in
-  `CHARGE_TIME`s, active above `CHARGE_ACTIVE`. Full charge blinks gold/white + throbs.
-  The held ball melees enemies on contact (big dmg, drains charge, shoves them off)
-  AND soaks incoming enemy bullets (`CHARGE_BLOCK_DRAIN` each — it's a shield).
-  Pressing fire while charged launches the ball: slow, pierces (hits each enemy once),
-  flies ~1s (`CHARGE_BALL_RANGE`), then **shotgun-breaks**: `SHARD_COUNT` shards spray
-  forward in a `SHOTGUN_SPREAD` cone; ball+shards ≈ one screen of total reach.
-  Design tension: conserve charge for defense/melee vs spray and risk more.
+- **Charge gun**: LMB = machine gun w/ spread. The charge ball builds **passively**
+  (firing does NOT suppress it): full in `CHARGE_TIME`s, active above `CHARGE_ACTIVE`;
+  only a launch or a water dunk zeroes it, then a `CHARGE_DELAY` cool-off before it
+  regrows. Full charge blinks gold/white + throbs. The held ball melees enemies on
+  contact (big dmg, drains charge, shoves them off) AND soaks incoming enemy bullets
+  (`CHARGE_BLOCK_DRAIN` each — it's a shield). RMB (edge-triggered) launches the ball:
+  slow, pierces (hits each enemy once), flies ~1s (`CHARGE_BALL_RANGE`), then
+  **shotgun-breaks**: `SHARD_COUNT` shards spray forward in a `SHOTGUN_SPREAD` cone;
+  ball+shards ≈ one screen of total reach.
+  Design tension: hold the ball for defense/melee vs launch it and fly naked.
 - **Shield** (Halo-style): hp regens at `SHIELD_REGEN_RATE` after `SHIELD_REGEN_DELAY`s
   without damage. Primary feedback = danger **vignette** (screen edges darken as hp
   drops + hit flash + low-hp pulse), see `game.renderVignette`.
@@ -120,7 +127,9 @@ Water is a safety net, NOT a highway — the underwater rules (all in plane.js):
 
 Verified numerically: 45°@300 → −45°@296; float settles at 8.8px; skim ejects in ~0.2s;
 zero thrust/bullets while submerged. Re-verify with a Node sim (Plane is importable
-headlessly): stub input `{down:(k)=>...}`, step `update(STEP, input, [], [])`.
+headlessly): stub input `{down:(k)=>..., fireDown:bool, specialDown:bool}`, step
+`update(STEP, input, [], [], aim)` — `aim = {x, y}` world target or `null` (holds
+heading, mouse-aim skipped).
 
 ## Architecture
 
@@ -129,7 +138,8 @@ index.html          canvas shell, pixelated CSS scaling
 src/main.js         bootstrap: window-filling canvas + zoom, fixed-timestep loop (STEP=1/120)
 src/constants.js    ALL tuning knobs + PALETTE (edit here to tweak feel)
 src/game.js         Game: reset/update/render, wave flow, collisions, particles, HUD, game over
-src/input.js        Input class: held-keys Set (KeyW/A/S/D/Space/KeyR), clears on blur
+src/input.js        Input class: held-keys Set (W/S/R/Shift) + mouse (mouseX/mouseY in
+                    canvas px, fireDown=LMB, specialDown=RMB); clears on blur
 src/camera.js       wrap-aware follow; cam.sx(x)/cam.sy(y) = world->screen (USE THESE);
                     cam.scrollX = continuous scroll for parallax
 src/world.js        sky, parallax clouds (wrap-continuous), single-color water (visual only)
@@ -154,7 +164,8 @@ normalize entity x with `wrapX()` after integrating. Render via `cam.sx()`, neve
 pays out money regardless of weapon (bullets, shards, melee, fired ball).
 
 **Headless testing**: `Game` itself is DOM-free (render aside) — construct with a stub
-input `{down:(k)=>keys.has(k)}`, step `game.update(STEP)`, inspect state. Set
+input `{down:(k)=>keys.has(k)}` (optionally `fireDown`/`specialDown`/`mouseX`/`mouseY`;
+missing mouse fields = no aim, heading held), step `game.update(STEP)`, inspect state. Set
 `game.breakTimer = 1e9` to suppress wave spawns when isolating a mechanic.
 
 ## Verification

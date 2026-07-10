@@ -51,6 +51,9 @@ export const ROT_SPEED = 3.6; // rad/s (base)
 export const ROT_MULT_SLOW = 1.5; // multiplier at standstill
 export const ROT_MULT_FAST = 0.6; // multiplier at MAX_SPEED
 export const AIR_DRAG = 0.35; // 1/s linear drag in air
+export const BRAKE_DRAG = 2.2; // 1/s extra drag while holding S (air only) —
+// slow enough to aim, but slow too long and lift fades: you stall and drop
+export const AIM_DEADZONE = 20; // px: cursor closer than this holds heading
 // Aerodynamic lift: air gravity fades with speed, gone at LIFT_SPEED.
 // Flying fast & level sustains altitude; stalling makes you drop.
 export const LIFT_SPEED = 280; // px/s
@@ -97,10 +100,10 @@ export const BOOST_OVERSPEED_MULT = 1.6; // cap multiplier while overspeeding
 export const SHIELD_REGEN_DELAY = 3.0; // s without taking damage
 export const SHIELD_REGEN_RATE = 30; // hp/s
 
-// ---- Charge gun: not shooting builds a ball at the nose ----
-// Spend it as melee (ram enemies with it) or fire it as a slow piercing
-// ball that explodes into shards at the end of its range.
-export const CHARGE_DELAY = 1.2; // s after releasing the trigger before charging starts
+// ---- Charge gun: a ball builds passively at the nose ----
+// Spend it as melee (ram enemies with it) or fire it (RMB) as a slow
+// piercing ball that explodes into shards at the end of its range.
+export const CHARGE_DELAY = 1.2; // s cool-off after a launch/dunk before charging resumes
 export const CHARGE_TIME = 7.0; // s from empty to full charge — slow & deliberate
 export const CHARGE_ACTIVE = 0.35; // min charge for the ball to melee/fire
 export const CHARGE_BALL_OFFSET = 24; // px in front of the plane's center

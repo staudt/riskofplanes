@@ -7,6 +7,11 @@ export const wrapX = (x) => ((x % WORLD_W) + WORLD_W) % WORLD_W;
 export const wrapDX = (dx) =>
   ((dx % WORLD_W) + WORLD_W * 1.5) % WORLD_W - WORLD_W / 2;
 export const lerp = (a, b, t) => a + (b - a) * t;
+// Normalize an angle difference to (-PI, PI] — shortest signed turn.
+export const wrapAngle = (a) => {
+  const TAU = Math.PI * 2;
+  return ((a % TAU) + TAU * 1.5) % TAU - Math.PI;
+};
 export const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 export const randInt = (lo, hi) => Math.floor(rand(lo, hi + 1));
 export const dist2 = (ax, ay, bx, by) => {

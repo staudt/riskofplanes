@@ -5,6 +5,8 @@ import {
   ROT_MULT_SLOW,
   ROT_MULT_FAST,
   AIR_DRAG,
+  BRAKE_DRAG,
+  AIM_DEADZONE,
   LIFT_SPEED,
   BUOY_K,
   WATER_CALM_SPEED,
@@ -37,7 +39,7 @@ import {
   CHARGE_BALL_MAX_R,
   PALETTE,
 } from '../constants.js';
-import { clamp, lerp, rand, wrapX } from '../util.js';
+import { clamp, lerp, rand, wrapX, wrapDX, wrapAngle } from '../util.js';
 import { Bullet } from './bullet.js';
 import { ChargeBall } from './chargeball.js';
 
@@ -65,6 +67,8 @@ export class Plane {
     this.bombFired = false; // game consumes: try to drop depth bombs (own cooldown)
     this.boost = 1; // 0..1, Shift burst; starts ready
     this.prevShift = false; // edge detection so held Shift fires only once
+    this.prevSpecial = false; // edge detection for the RMB charge-ball launch
+    this.braking = false; // S held in air, for render feedback
     this.overspeed = 0; // s left of raised speed cap after boosting
     this.boostFired = false; // game reads this to spawn the burst effect
     this.ballAbsorbed = false; // set when water eats the held ball (game shows fizzle)
@@ -101,7 +105,8 @@ export class Plane {
     return this.y > WATER_LINE;
   }
 
-  update(dt, input, bullets, balls) {
+  // aim = {x, y} world-space cursor target, or null (no mouse yet / headless).
+  update(dt, input, bullets, balls, aim = null) {
     if (this.dead) return;
 
     this.fireTimer -= dt;
@@ -114,11 +119,20 @@ export class Plane {
       this.hp = Math.min(PLAYER_HP, this.hp + SHIELD_REGEN_RATE * dt);
     }
 
-    // --- Rotation: inertia — nimble when slow, wide curves when fast ---
+    // --- Rotation: chase the cursor at the inertia-scaled turn rate —
+    // nimble when slow, wide curves when fast. The mouse is a target, not a
+    // teleport: aim across the screen and watch the plane carve toward it. ---
     const speedFrac = clamp(Math.hypot(this.vx, this.vy) / MAX_SPEED, 0, 1);
     const rot = ROT_SPEED * lerp(ROT_MULT_SLOW, ROT_MULT_FAST, speedFrac);
-    if (input.down('KeyA')) this.angle -= rot * dt;
-    if (input.down('KeyD')) this.angle += rot * dt;
+    if (aim) {
+      const dx = wrapDX(aim.x - this.x);
+      const dy = aim.y - this.y;
+      // Dead zone: cursor sitting on the plane holds heading (no jitter).
+      if (dx * dx + dy * dy > AIM_DEADZONE * AIM_DEADZONE) {
+        const diff = wrapAngle(Math.atan2(dy, dx) - this.angle);
+        this.angle += clamp(diff, -rot * dt, rot * dt);
+      }
+    }
 
     // --- Thrust: engine is dead while the tip is submerged — you can't fly
     // under water. Point the nose up out of the water to take off. ---
@@ -126,6 +140,15 @@ export class Plane {
     if (this.thrusting) {
       this.vx += Math.cos(this.angle) * THRUST * dt;
       this.vy += Math.sin(this.angle) * THRUST * dt;
+    }
+
+    // --- Brake (S, air only): bleed speed to line up a shot. Costs lift —
+    // hold it too long and you stall and drop. Water keeps its own rules. ---
+    this.braking = input.down('KeyS') && !this.inWater;
+    if (this.braking) {
+      const brake = 1 - BRAKE_DRAG * dt;
+      this.vx *= brake;
+      this.vy *= brake;
     }
 
     // --- Boost (Shift): charged instant kick along facing ---
@@ -205,54 +228,57 @@ export class Plane {
       if (this.vy > 0) this.vy = 0;
     }
 
-    // --- Fire / charge ---
-    // Not shooting builds a charge ball at the nose. Shooting while charged
-    // launches the ball (slow, piercing); otherwise it's the machine gun,
-    // which keeps the charge at zero — spray or conserve, not both.
-    // Guns only work with the tip out of the water.
-    if (input.down('Space')) {
-      // Any trigger time restarts the cool-off before charging can begin.
-      this.chargeDelay = CHARGE_DELAY;
-      if (this.tipUnderwater) {
-        // trigger held under water: nothing fires, nothing charges
-      } else if (this.ballActive) {
-        balls.push(
-          new ChargeBall(
-            this.ballX,
-            this.ballY,
-            this.angle,
-            this.vx,
-            this.vy,
-            this.charge
-          )
-        );
-        this.charge = 0;
-        this.fireTimer = FIRE_COOLDOWN * 2; // beat before the gun kicks in
-      } else {
-        this.charge = 0;
-        if (this.fireTimer <= 0) {
-          this.fireTimer = FIRE_COOLDOWN * this.fireCooldownMult;
-          this.muzzleFlash = 0.06;
-          const a = this.angle + rand(-BULLET_SPREAD, BULLET_SPREAD);
-          const b = new Bullet(
-            this.x + Math.cos(this.angle) * 10,
-            this.y + Math.sin(this.angle) * 10,
-            Math.cos(a) * BULLET_SPEED + this.vx * 0.5,
-            Math.sin(a) * BULLET_SPEED + this.vy * 0.5,
-            'player'
-          );
-          b.bounces = this.ricochetBounces;
-          bullets.push(b);
-          this.bombFired = true; // game consumes: drop depth bombs if their cooldown is up
-          // Seeker rhythm: every SEEKER_EVERY-th shot also launches missiles
-          this.shotCount++;
-          if (this.seekerStacks > 0 && this.shotCount % SEEKER_EVERY === 0) {
-            this.seekerRequest = this.seekerStacks;
-          }
-        }
+    // --- Fire (LMB): machine gun along the facing. Guns only work with the
+    // tip out of the water. ---
+    if (input.fireDown && !this.tipUnderwater && this.fireTimer <= 0) {
+      this.fireTimer = FIRE_COOLDOWN * this.fireCooldownMult;
+      this.muzzleFlash = 0.06;
+      const a = this.angle + rand(-BULLET_SPREAD, BULLET_SPREAD);
+      const b = new Bullet(
+        this.x + Math.cos(this.angle) * 10,
+        this.y + Math.sin(this.angle) * 10,
+        Math.cos(a) * BULLET_SPEED + this.vx * 0.5,
+        Math.sin(a) * BULLET_SPEED + this.vy * 0.5,
+        'player'
+      );
+      b.bounces = this.ricochetBounces;
+      bullets.push(b);
+      this.bombFired = true; // game consumes: drop depth bombs if their cooldown is up
+      // Seeker rhythm: every SEEKER_EVERY-th shot also launches missiles
+      this.shotCount++;
+      if (this.seekerStacks > 0 && this.shotCount % SEEKER_EVERY === 0) {
+        this.seekerRequest = this.seekerStacks;
       }
-    } else if (this.chargeDelay > 0) {
-      this.chargeDelay -= dt; // cool-off: not charging yet
+    }
+
+    // --- Special (RMB, edge-triggered): launch the charge ball (slow,
+    // piercing, shotgun-breaks at range end). ---
+    const special = !!input.specialDown;
+    if (
+      special &&
+      !this.prevSpecial &&
+      this.ballActive &&
+      !this.tipUnderwater
+    ) {
+      balls.push(
+        new ChargeBall(
+          this.ballX,
+          this.ballY,
+          this.angle,
+          this.vx,
+          this.vy,
+          this.charge
+        )
+      );
+      this.charge = 0;
+      this.chargeDelay = CHARGE_DELAY; // recovery beat before recharging
+    }
+    this.prevSpecial = special;
+
+    // --- Charge: builds passively (firing no longer suppresses it); only a
+    // launch or a dunk resets it, with a cool-off before it regrows. ---
+    if (this.chargeDelay > 0) {
+      this.chargeDelay -= dt;
     } else {
       this.charge = Math.min(1, this.charge + dt / CHARGE_TIME);
     }

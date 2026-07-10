@@ -22,7 +22,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-const input = new Input();
+const input = new Input(canvas);
 const game = new Game(input);
 
 // Fixed-timestep update, render once per frame.
